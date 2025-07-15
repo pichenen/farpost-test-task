@@ -1,0 +1,56 @@
+services:
+  # Контейнер с Chrome (Selenium Node)
+  chrome:
+    image: selenium/node-chrome:latest
+    platform: linux/amd64
+    shm_size: 2gb
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+    depends_on:
+      - selenium-hub
+    ports:
+      - "7900:7900"  # VNC просмотр (пароль: secret)
+
+  # Selenium Hub
+  selenium-hub:
+    image: selenium/hub:latest
+    platform: linux/amd64
+    ports:
+      - "4444:4444"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+
+  # Контейнер с тестами
+  tests:
+    build: .
+    depends_on:
+      selenium-hub:
+        condition: service_healthy
+      chrome:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://selenium-hub:4444/wd/hub/status" ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+    environment:
+      - INVALID_LOGIN=${INVALID_LOGIN}
+      - INVALID_PASSWORD=${INVALID_PASSWORD}
+      - VALID_LOGIN=${VALID_LOGIN}
+      - VALID_PASSWORD=${VALID_PASSWORD}
+      - SELENIDE_REMOTE=http://selenium-hub:4444/wd/hub
+      - SELENIDE_BROWSER=chrome
+      - HEADLESS=1
+    volumes:
+      - ./target:/app/target  # Для сохранения отчетов
+    command: >
+      sh -c "
+        mvn test -Dallure.results.directory=target/allure-results;
+        allure generate --clean --single-file ./target/allure-results -o ./target/allure-report
+      "
